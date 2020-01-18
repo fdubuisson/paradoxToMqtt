@@ -1,4 +1,5 @@
 #include <FS.h>
+//#include <SoftwareSerial.h>
 #include <ESP8266WiFi.h>
 #include <ESP8266mDNS.h>
 #include <ESP8266SSDP.h>
@@ -39,12 +40,22 @@
 #define Serial_Swap 0
 
 #define Hassio 1          // 1 enables 0 disables Hassio-Openhab support
+#define HomeKit 0         // enables homekit topic
 #define SendAllE0events 1 //If you need all events set to 1 else 0
 
 //If you need event decriptions set to 1 else 0 Can cause slow downs on heavy systems.
 //Can also be enabled by sending sendeventdescriptions=1 to in topic.
 //Enable it here if you want it enabled after a reboot
 bool SendEventDescriptions = 1;
+
+/*
+HomeKit id 
+Characteristic.SecuritySystemCurrentState.STAY_ARM = 0;
+Characteristic.SecuritySystemCurrentState.AWAY_ARM = 1;
+Characteristic.SecuritySystemCurrentState.NIGHT_ARM = 2;
+Characteristic.SecuritySystemCurrentState.DISARMED = 3;
+Characteristic.SecuritySystemCurrentState.ALARM_TRIGGERED = 4;
+*/
 
 bool TRACE = 1;
 bool OTAUpdate = 0;
@@ -54,6 +65,9 @@ char *root_topicStatus = "paradoxdCTL/status";
 char *root_topicIn = "paradoxdCTL/in";
 char *root_topicHassioArm = "paradoxdCTL/hassio/Arm";
 char *root_topicHassio = "paradoxdCTL/hassio";
+char *root_topicArmHomekit = "paradoxdCTL/HomeKit";
+
+//root_topicArmStatus
 
 WiFiClient espClient;
 // client parameters
@@ -90,6 +104,8 @@ typedef struct
 } paradoxArm;
 
 paradoxArm hassioStatus;
+
+paradoxArm homekitStatus;
 
 void serial_flush_buffer();
 void trc(String msg);
@@ -226,20 +242,33 @@ void StartSSDP()
 
 void updateArmStatus(byte event, byte sub_event)
 {
+  bool datachanged = false;
   if (event == 2)
   {
     switch (sub_event)
     {
     case 4:
       hassioStatus.stringArmStatus = "triggered";
+      homekitStatus.stringArmStatus = "ALARM_TRIGGERED";
+      homekitStatus.intArmStatus = 4;
+      datachanged = true;
+
       break;
 
     case 11:
       hassioStatus.stringArmStatus = "disarmed";
+      homekitStatus.stringArmStatus = "DISARMED";
+      homekitStatus.intArmStatus = 3;
+      datachanged = true;
+
       break;
 
     case 12:
       hassioStatus.stringArmStatus = "armed_away";
+      homekitStatus.stringArmStatus = "AWAY_ARM";
+      homekitStatus.intArmStatus = 1;
+
+      datachanged = true;
       break;
 
     default:
@@ -250,11 +279,17 @@ void updateArmStatus(byte event, byte sub_event)
   {
     if (sub_event == 3)
     {
+      datachanged = true;
       hassioStatus.stringArmStatus = "armed_home";
+      homekitStatus.stringArmStatus = "STAY_ARM";
+      homekitStatus.intArmStatus = 0;
     }
     else if (sub_event == 4)
     {
+      datachanged = true;
       hassioStatus.stringArmStatus = "armed_home";
+      homekitStatus.stringArmStatus = "NIGHT_ARM";
+      homekitStatus.intArmStatus = 2;
     }
   }
 }
@@ -268,10 +303,59 @@ void sendArmStatus()
   {
     sendMQTT(root_topicHassioArm, hassioStatus.stringArmStatus, true);
   }
+  if (HomeKit)
+  {
+    root["Armstatus"] = homekitStatus.intArmStatus;
+    root["ArmStatusD"] = homekitStatus.stringArmStatus;
+    root.printTo(output);
+    sendCharMQTT(root_topicArmHomekit, output, false);
+  }
 }
 
 void processMessage(byte event, byte sub_event, String dummy)
 {
+  if ((Hassio || HomeKit) && (event == 2 || event == 6))
+  {
+    updateArmStatus(event, sub_event);
+  }
+
+  //Dont send the arm event now send it on next message, because it might be updated to sleep or stay.
+  if ((Hassio || HomeKit) && (event != 2 and sub_event != 12))
+  {
+    if (homekitStatus.sent != homekitStatus.intArmStatus)
+    {
+      sendArmStatus();
+      homekitStatus.sent = homekitStatus.intArmStatus;
+    }
+  }
+
+  if ((Hassio) && (event == 1 || event == 0))
+  {
+    char ZoneTopic[80];
+    String zone = String(root_topicHassio) + "/zone";
+    zone.toCharArray(ZoneTopic, 80);
+    zone = String(ZoneTopic) + String(sub_event);
+    zone.toCharArray(ZoneTopic, 80);
+
+    String zonestatus = event == 1 ? "ON" : "OFF";
+
+    sendMQTT(ZoneTopic, zonestatus, true);
+  }
+
+  if ((HomeKit) && (event == 1 || event == 0))
+  {
+    char output[128];
+    StaticJsonBuffer<128> jsonBuffer;
+    JsonObject &homekitmsg = jsonBuffer.createObject();
+    homekitmsg["zone"] = sub_event;
+    dummy.trim();
+    homekitmsg["zoneName"] = String(dummy);
+    homekitmsg["state"] = event == 1 ? true : false;
+    homekitmsg.printTo(output);
+
+    sendCharMQTT(root_topicArmHomekit, output, false);
+  }
+
   if (SendAllE0events)
   {
     char outputMQ[256];
@@ -784,6 +868,44 @@ void PanelStatus1()
   panelstatus1.printTo(panelst);
   sendCharMQTT(root_topicOut, panelst, false);
 
+  if (AlarmFlg)
+  {
+    hassioStatus.stringArmStatus = "triggered";
+    homekitStatus.stringArmStatus = "ALARM_TRIGGERED";
+    homekitStatus.intArmStatus = 4;
+  }
+  else if (StayFlg)
+  {
+    hassioStatus.stringArmStatus = "armed_home";
+    homekitStatus.stringArmStatus = "STAY_ARM";
+    homekitStatus.intArmStatus = 0;
+  }
+  else if (SleepFlg)
+  {
+    hassioStatus.stringArmStatus = "armed_home";
+    homekitStatus.stringArmStatus = "NIGHT_ARM";
+    homekitStatus.intArmStatus = 2;
+  }
+  else if (ArmFlg)
+  {
+    hassioStatus.stringArmStatus = "armed_away";
+    homekitStatus.stringArmStatus = "AWAY_ARM";
+    homekitStatus.intArmStatus = 1;
+  }
+  else if (!SleepFlg && !StayFlg && !ArmFlg)
+  {
+    hassioStatus.stringArmStatus = "disarmed";
+    homekitStatus.stringArmStatus = "DISARMED";
+    homekitStatus.intArmStatus = 3;
+  }
+
+  else
+  {
+    hassioStatus.stringArmStatus = "unknown";
+    homekitStatus.stringArmStatus = "unknown";
+    homekitStatus.intArmStatus = 99;
+  }
+  //sendMQTT(root_topicArmStatus,retval);
   sendArmStatus();
 }
 
@@ -1187,6 +1309,10 @@ String getpage()
   page += F("</dd>");
   page += F("<dt>Hassio</dt><dd>");
   page += Hassio;
+  page += F("</dd>");
+
+  page += F("<dt>Homekit</dt><dd>");
+  page += HomeKit;
   page += F("</dd>");
 
   page += F("<dt>Chip ID</dt><dd>");
