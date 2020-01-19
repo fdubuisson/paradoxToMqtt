@@ -1,27 +1,13 @@
-#include <FS.h>
 #include <SoftwareSerial.h>
 #include <ESP8266WiFi.h>
-#include <ESP8266mDNS.h>
-#include <ESP8266SSDP.h>
-#include <ESP8266WebServer.h>
-#include <WiFiUdp.h>
 #include <ArduinoOTA.h>
-#include <DNSServer.h>
 #include <PubSubClient.h>
 #include <WiFiManager.h>
 #include <ArduinoJson.h>
 
-#include <SoftwareSerial.h>
-
 SoftwareSerial paradoxSerial(D8,D7);
 
 void setup() {
-  /*
-  Serial1.begin(9600);
-  Serial1.flush();
-  Serial1.setDebugOutput(true);
-  */
-
   Serial.begin(9600);
   Serial.flush();
 
@@ -30,15 +16,35 @@ void setup() {
   
   Serial.println("setup");
 }
- 
+
 void loop()
 {
-  if(paradoxSerial.available() >= 4) {
+  if (paradoxSerial.available() >= 4) {
+    int header = paradoxSerial.read();
+    int command = paradoxSerial.read();
+
+    paradoxSerial.read();
+    paradoxSerial.read();
+
+    if (header != 0x08) {
+      return;
+    }
+    switch (command) {
+        case 0xA1:
+          Serial.println("Activated");
+          break;
+        case 0x91:
+          Serial.println("Deactivated");
+          break;
+    }
+  }
+/*
+  if(paradoxSerial.available() > 4) {
     for (int i=0; i<4; i++) {
       int data = paradoxSerial.read();
       Serial.print(data, HEX);
       Serial.print(" ");
     }
     Serial.println("");
-  }
+  }*/
 }
