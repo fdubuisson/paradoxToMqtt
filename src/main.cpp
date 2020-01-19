@@ -4,10 +4,14 @@
 #include <PubSubClient.h>
 #include <WiFiManager.h>
 #include <ArduinoJson.h>
+#include "wifi.h"
+#include "config.h"
 
-SoftwareSerial paradoxSerial(D8,D7);
+SoftwareSerial paradoxSerial(RX_PIN, TX_PIN);
 
 void setup() {
+  setupWifi(ssid, password);
+
   Serial.begin(9600);
   Serial.flush();
 
@@ -17,8 +21,9 @@ void setup() {
   Serial.println("setup");
 }
 
-void loop()
-{
+void loop() {
+	keepAlive(ssid, password);
+  
   if (paradoxSerial.available() >= 4) {
     int header = paradoxSerial.read();
     int command = paradoxSerial.read();
