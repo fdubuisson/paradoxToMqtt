@@ -1,29 +1,26 @@
 #include <SoftwareSerial.h>
 #include <ESP8266WiFi.h>
-#include <ArduinoOTA.h>
-#include <PubSubClient.h>
-#include <WiFiManager.h>
-#include <ArduinoJson.h>
 #include "wifi.h"
+#include "mqtt.h"
 #include "config.h"
 
 SoftwareSerial paradoxSerial(RX_PIN, TX_PIN);
 
 void setup() {
   setupWifi(ssid, password);
+  setupMqtt(mqtt_server, mqtt_port, mqtt_user, mqtt_password);  
 
   Serial.begin(9600);
   Serial.flush();
 
   paradoxSerial.begin(9600);
   paradoxSerial.flush();  
-  
-  Serial.println("setup");
 }
 
 void loop() {
-	keepAlive(ssid, password);
-  
+	keepAliveWifi(ssid, password);
+  keepAliveMqtt(mqtt_user, mqtt_password);
+
   if (paradoxSerial.available() >= 4) {
     int header = paradoxSerial.read();
     int command = paradoxSerial.read();
@@ -37,9 +34,11 @@ void loop() {
     switch (command) {
         case 0xA1:
           Serial.println("Activated");
+          sendArmStatus(true);
           break;
         case 0x91:
           Serial.println("Deactivated");
+          sendArmStatus(false);
           break;
     }
   }

@@ -27,7 +27,7 @@ void setupWifi(const char* ssid, const char* password) {
   }
 }
 
-void keepAlive(const char* ssid, const char* password) {
+void keepAliveWifi(const char* ssid, const char* password) {
   if (WiFi.status() != WL_CONNECTED) {
     Serial.print("Connection lost.");
     WiFi.disconnect();
