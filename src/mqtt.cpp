@@ -32,8 +32,12 @@ void keepAliveMqtt(const char* user, const char* password) {
 }
 
 void sendArmStatus(bool activated) {
-    char data = (activated ? '1' : '0');
-    if (! client.publish(armStatusTopic, &data, 1)) {
-      Serial.print("Failed sending status");
-    }
+  char data = (activated ? '1' : '0');
+  if (! client.publish(armStatusTopic, &data, 1)) {
+    Serial.print("Failed sending status");
+  }
+}
+
+void sendDebug(const char* message) {
+
 }

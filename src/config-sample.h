@@ -10,3 +10,4 @@ const int mqtt_port = 1883;
 const char* mqtt_user = "";
 const char* mqtt_password = "";
 
+const int httpPort = 80;
